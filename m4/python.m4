@@ -4,24 +4,23 @@ dnl a macro to check for ability to create python extensions
 dnl  AM_CHECK_PYTHON_HEADERS([ACTION-IF-POSSIBLE], [ACTION-IF-NOT-POSSIBLE])
 dnl function also defines PYTHON_INCLUDES
 AC_DEFUN([AM_CHECK_PYTHON_HEADERS],
-[AC_REQUIRE([AM_PATH_PYTHON])
+[
+AC_REQUIRE([AM_PATH_PYTHON])
 AC_MSG_CHECKING(for python development headers)
-dnl deduce PYTHON_INCLUDES
-py_prefix=`$PYTHON -c "import sys; print sys.prefix"`
-py_exec_prefix=`$PYTHON -c "import sys; print sys.exec_prefix"`
-PYTHON_INCLUDES="-I${py_prefix}/include/python${PYTHON_VERSION}"
+dnl Deduce PYTHON_INCLUDES for Python 3
+py_prefix=`$PYTHON -c "import sys; print(sys.prefix)"`
+py_exec_prefix=`$PYTHON -c "import sys; print(sys.exec_prefix)"`
+py_version=`$PYTHON -c "import sysconfig; print(sysconfig.get_python_version())"`
+py_abi_tag=`$PYTHON -c "import sysconfig; print(sysconfig.get_config_var('ABIFLAGS'))"`
+PYTHON_INCLUDES="-I${py_prefix}/include/python${py_version}${py_abi_tag} -I${py_prefix}/include/python${py_version}"
 if test "$py_prefix" != "$py_exec_prefix"; then
-  PYTHON_INCLUDES="$PYTHON_INCLUDES -I${py_exec_prefix}/include/python${PYTHON_VERSION}"
+  PYTHON_INCLUDES="$PYTHON_INCLUDES -I${py_exec_prefix}/include/python${py_version}${py_abi_tag} -I${py_exec_prefix}/include/python${py_version}"
 fi
 AC_SUBST(PYTHON_INCLUDES)
-dnl check if the headers exist:
+dnl Check if the headers exist
 save_CPPFLAGS="$CPPFLAGS"
 CPPFLAGS="$CPPFLAGS $PYTHON_INCLUDES"
-AC_TRY_CPP([#include <Python.h>],dnl
-[AC_MSG_RESULT(found)
-$1],dnl
-[AC_MSG_RESULT(not found)
-$2])
+AC_CHECK_HEADERS([Python.h], [AC_MSG_RESULT(found)], [AC_MSG_RESULT(not found); $2])
 CPPFLAGS="$save_CPPFLAGS"
 ])
 
@@ -30,55 +29,45 @@ dnl
 dnl AM_CHECK_PYMOD(MODNAME [,VERSION, VERSION_MATCHER [,ACTION-IF-FOUND [,ACTION-IF-NOT-FOUND]]])
 dnl Check if a module of a particular version is visible to python.
 AC_DEFUN([AM_CHECK_PYMOD],
-[AC_REQUIRE([AM_PATH_PYTHON])
-py_mod_var=`echo $1`
+[
+AC_REQUIRE([AM_PATH_PYTHON])
+py_mod_var=`echo $1 | sed 's/[^a-zA-Z0-9_]/_/g'`
 AC_MSG_CHECKING(for python module $1 ifelse([$2],[],,[>= $2]))
-AC_CACHE_VAL(py_cv_mod_$py_mod_var, [
-ifelse([$2],[], [prog="
-import sys
+AC_CACHE_VAL([py_cv_mod_$py_mod_var], [
+ifelse([$2],[], [
+  prog="import sys
 try:
-        import $1
+    import $1
 except ImportError:
+    sys.exit(1)
+sys.exit(0)"
+], [
+  prog="import sys
+try:
+    import $1
+    mod_version = getattr($1, '__version__', 'unknown')
+    from distutils.version import LooseVersion as LV
+    if LV(mod_version) < LV('$2'):
         sys.exit(1)
-except:
-        sys.exit(0)
-sys.exit(0)"], [prog="
-import sys, string, $1
-curverstr = $3
-# use method from AM_PYTHON_CHECK_VERSION
-minver = map(int, string.split('$2', '.'))
-length = len[(minver)]
-minver += [[0, 0, 0]]
-minverhex = 0
-for i in xrange(0, 4): minverhex = (minverhex << 8) + minver[[i]]
-curver = map(int, string.split(curverstr, '.')[[:length]])
-curver += [[0, 0, 0]]
-curverhex = 0
-for i in xrange(0, 4): curverhex = (curverhex << 8) + curver[[i]]
-if (curverhex >= minverhex):
-        sys.exit(0)
-else:
-        sys.exit(1)
-sys.exit(0)"])
-if $PYTHON -c "$prog" 1>&AC_FD_CC 2>&AC_FD_CC
-  then
-    eval "py_cv_mod_$py_mod_var=yes"
-  else
-    eval "py_cv_mod_$py_mod_var=no"
-  fi
+except ImportError:
+    sys.exit(1)
+sys.exit(0)"
 ])
-py_val=`eval "echo \`echo '$py_cv_mod_'$py_mod_var\`"`
-if test "x$py_val" != xno; then
-  AC_MSG_RESULT(yes)
-  ifelse([$4], [],, [$4
-])dnl
+if $PYTHON -c "$prog" > /dev/null 2>&1; then
+  eval "py_cv_mod_$py_mod_var=yes"
 else
-  AC_MSG_RESULT(no)
-  ifelse([$5], [],, [$5
-])dnl
+  eval "py_cv_mod_$py_mod_var=no"
 fi
 ])
-
+py_val=`eval "echo \\$$py_cv_mod_$py_mod_var"`
+if test "x$py_val" != xno; then
+  AC_MSG_RESULT(yes)
+  ifelse([$4], [],, [$4])
+else
+  AC_MSG_RESULT(no)
+  ifelse([$5], [],, [$5])
+fi
+])
 dnl check for python
 AC_DEFUN([LIBGPOD_CHECK_PYTHON],
 [

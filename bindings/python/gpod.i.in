@@ -39,10 +39,8 @@ interface."
 %enddef
 
 %pythoncode %{
-version_info = (@LIBGPOD_MAJOR_VERSION@, 
-		@LIBGPOD_MINOR_VERSION@, 
-		@LIBGPOD_MICRO_VERSION@)
-version = '.'.join(map(str, version_info))  
+version = "@PACKAGE_VERSION@"
+version_info = version.split(".")
 %}
 
 %module(docstring=DOCSTRING) gpod
@@ -65,7 +63,6 @@ version = '.'.join(map(str, version_info))
 #endif
 #endif
 
-
 /* include prototypes for all functions so builds using
  * -Wmissing-prototypes don't fail. */
 PyObject* sw_get_tracks(Itdb_iTunesDB *itdb);
@@ -86,7 +83,7 @@ PyObject* sw_get_photoalbum_members(Itdb_PhotoAlbum *album);
 PyObject* sw_ipod_device_to_dict(Itdb_Device *device);
 void sw__track_extra_destroy (PyObject *data);
 void hash_table_to_pydict(gpointer key, gpointer value, gpointer user_data);
-void SWIG_init(void);
+/*void SWIG_init(void);*/
 
 PyObject* sw_get_tracks(Itdb_iTunesDB *itdb) {
   PyObject    *list;
@@ -116,7 +113,7 @@ PyObject* sw_get_rule(GList *list, gint index) {
    return NULL;
   }
   position = g_list_nth(list, index);
-  return SWIG_NewPointerObj((void*)(position->data), SWIGTYPE_p__Itdb_SPLRule, 0);
+  return SWIG_NewPointerObj((void*)(position->data), SWIGTYPE_p__Itdb_Device, 0);
  }
 
 PyObject* sw_get_playlist(GList *list, gint index) {
@@ -130,7 +127,7 @@ PyObject* sw_get_playlist(GList *list, gint index) {
  }
 
 PyObject* sw_get_list_len(GList *list) {
-   return PyInt_FromLong(g_list_length(list));
+   return PyLong_FromLong(g_list_length(list));
  }
 
 PyObject* sw_get_playlist_tracks(Itdb_Playlist *pl) {
@@ -224,7 +221,7 @@ PyObject* sw_get_photoalbum(GList *list, gint index) {
   list = PyList_New(g_list_length(album->members));
   for (l = album->members, i = 0; l; l = l->next, ++i) {
     gint photo_id = GPOINTER_TO_INT(l->data);
-    PyList_SET_ITEM(list, i, PyInt_FromLong((long)photo_id));
+    PyList_SET_ITEM(list, i, PyLong_FromLong((long)photo_id));
   }
   return list;
  }
@@ -256,7 +253,7 @@ PyObject* sw_get_photo(GList *list, gint index) {
 			   gpointer user_data) {
    PyDict_SetItemString((PyObject *)user_data, 
 			(char *)key,
-			PyString_FromString(value));
+			PyUnicode_FromString(value));
  }
 
  PyObject* sw_ipod_device_to_dict(Itdb_Device *device) {
@@ -269,7 +266,7 @@ PyObject* sw_get_photo(GList *list, gint index) {
      g_hash_table_foreach(device->sysinfo, 
 			  hash_table_to_pydict, 
 			  (gpointer) sysinfo);
-     return Py_BuildValue("{s:s,s:i,s:i,s:O}",
+     return Py_BuildValue("{s:s,s:i,s:i,s:O,s:i}",
 			  "mountpoint",
 			  device->mountpoint,
 			  "musicdirs",
@@ -277,37 +274,42 @@ PyObject* sw_get_photo(GList *list, gint index) {
 			  "byte_order",
 			  device->byte_order,
 			  "sysinfo",
-			  sysinfo);
+			  sysinfo,
+                          "timezone_shift",
+                          device->timezone_shift);
    }
  }
 
 %}
 
 %init %{
-#ifdef HAVE_GDKPIXBUF
 #ifdef HAVE_PYGOBJECT
-   g_type_init ();
-   init_pygobject ();
+#if PY_MAJOR_VERSION >= 3
+  PyDateTime_IMPORT;
+#endif
+#ifdef HAVE_GDKPIXBUF
+  pygobject_init(-1, -1, -1);
 #endif
 #endif
-   PyDateTime_IMPORT;
 %}
 
 %include "gpod_doc.i"
 %include "@top_builddir@/config.h"
 
-# be nicer to decode these utf8 strings into Unicode objects in the C
-# layer. Here we are leaving it to the Python side, and just giving
-# them utf8 encoded Strings.
+
 typedef char gchar;
 
 %typemap(in) time_t {
   struct tm tmvalue;
   PyObject* pydatetime = NULL;
+#if PY_MAJOR_VERSION >= 3
   if (PyDateTime_Check($input)) {
+#else
+  if (PyDateTime_Check($input) || PyDate_Check($input)) {
+#endif
     pydatetime = $input;
     Py_INCREF(pydatetime);
-  } else if  ((PyInt_Check($input)) || (PyLong_Check($input)) || (PyFloat_Check($input))) {
+  } else if  ((PyLong_Check($input)) || (PyFloat_Check($input))) {
     PyObject* pyargs;
     Py_INCREF($input);
     pyargs = PyTuple_Pack(1, $input);
@@ -357,7 +359,7 @@ typedef char gchar;
 
 %typemap(in) guint8 {
    unsigned long ival;
-   ival = PyInt_AsUnsignedLongMask($input);
+   ival = PyLong_AsUnsignedLongMask($input);
    if (PyErr_Occurred())
         SWIG_fail;
    if (ival > 255) {
@@ -370,7 +372,7 @@ typedef char gchar;
 
 %typemap(in) gint8 {
    long ival;
-   ival = PyInt_AsInt($input);
+   ival = PyLong_AsLong($input);
    if (PyErr_Occurred())
         SWIG_fail;
    if ((ival < -128) || (ival > 127)) {
@@ -383,7 +385,7 @@ typedef char gchar;
 
 %typemap(in) guint16 {
    unsigned long ival;
-   ival = PyInt_AsUnsignedLongMask($input);
+   ival = PyLong_AsUnsignedLongMask($input);
    if (PyErr_Occurred())
         SWIG_fail;
    if (ival > 65535) {
@@ -396,7 +398,7 @@ typedef char gchar;
 
 %typemap(in) gint16 {
    long ival;
-   ival = PyInt_AsLong($input);
+   ival = PyLong_AsLong($input);
    if (PyErr_Occurred())
         SWIG_fail;
    if ((ival < -32768) || (ival > 32767)) {
@@ -409,7 +411,7 @@ typedef char gchar;
 
 %typemap(in) guint32 {
    unsigned long ival;
-   ival = PyInt_AsUnsignedLongMask($input);
+   ival = PyLong_AsUnsignedLongMask($input);
    if (PyErr_Occurred())
         SWIG_fail;
    $1 = (guint32) ival;
@@ -417,15 +419,15 @@ typedef char gchar;
 
 %typemap(in) gint32 {
    long ival;
-   ival = PyInt_AsLong($input);
+   ival = PyLong_AsLong($input);
    if (PyErr_Occurred())
         SWIG_fail;
    $1 = (gint32) ival;
 }
 
 %typemap(in) guint64 {
-  if (PyInt_CheckExact($input))
-    $1 = PyInt_AsUnsignedLongLongMask($input);
+  if (PyLong_CheckExact($input))
+    $1 = PyLong_AsUnsignedLongLongMask($input);
   else
     $1 = PyLong_AsUnsignedLongLong($input);
   if (PyErr_Occurred())
@@ -433,8 +435,8 @@ typedef char gchar;
 }
 
 %typemap(in) gint64 {
-  if (PyInt_CheckExact($input))
-    $1 = PyInt_AsLong($input);
+  if (PyLong_CheckExact($input))
+    $1 = PyLong_AsLong($input);
   else
     $1 = PyLong_AsLongLong($input);
   if (PyErr_Occurred())
@@ -466,7 +468,7 @@ typedef char gchar;
 }
 
 %typemap(out) guint8 {
-   $result = PyInt_FromLong($1);
+   $result = PyLong_FromLong($1);
 }
 
 typedef int gboolean;
@@ -499,6 +501,9 @@ PyObject* sw_get_playlists(Itdb_iTunesDB *itdb);
 PyObject* sw_get_playlist_tracks(Itdb_Playlist *pl);
 PyObject* sw_set_track_userdata(Itdb_Track *track, PyObject *data);
 PyObject* sw_get_track_userdata(Itdb_Track *track);
+PyObject* sw__track_extra_duplicate (PyObject *data);
+PyObject* sw__track_extra_duplicate (PyObject *data);
+void sw__track_extra_destroy (PyObject *data);
 PyObject* sw_get_photoalbums(Itdb_PhotoDB *db);
 PyObject* sw_get_photoalbum(GList *list, gint index);
 PyObject* sw_get_photos(Itdb_PhotoDB *db);

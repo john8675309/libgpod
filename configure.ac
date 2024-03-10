@@ -1,5 +1,5 @@
 AC_PREREQ(2.65)
-AC_INIT([libgpod], [0.8.0])
+AC_INIT([libgpod], [0.8.3])
 AC_CONFIG_SRCDIR([configure.ac])
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -11,7 +11,7 @@ dnl libtool versioning
 #                 changes to the signature and the semantic)
 #  ? :+1 : ?   == just internal changes
 # CURRENT : REVISION : AGE
-LIBGPOD_SO_VERSION=7:1:3
+LIBGPOD_SO_VERSION=7:2:3
 AC_SUBST(LIBGPOD_SO_VERSION)
 
 AM_INIT_AUTOMAKE([dist-bzip2 no-dist-gzip])
@@ -42,24 +42,21 @@ AC_CHECK_FUNCS([localtime_r])
 AC_CHECK_MEMBERS([struct tm.tm_gmtoff],,,[#include <time.h>])
 dnl sqlite3 is needed for newer ipod models (nano5g), and libplist is needed 
 dnl by libgpod sqlite code
-PKG_CHECK_MODULES(LIBGPOD, glib-2.0 >= 2.8.0 gobject-2.0 sqlite3 libplist >= 1.0)
+PKG_CHECK_MODULES(LIBGPOD, glib-2.0 >= 2.16.0 gobject-2.0 sqlite3 libplist >= 1.0 gmodule-2.0)
 
-dnl **************************************************
-dnl we've copied gchecksum from glib 2.16. Only use the
-dnl copy if the version of glib on the system does not
-dnl provide it.
-dnl **************************************************
-
-AC_ARG_WITH(internal-gchecksum,
-            AS_HELP_STRING([--with-internal-gchecksum],[Build using internal copy of gchecksum]),,
-                           with_internal_gchecksum=no)
-
-if test "x$with_internal_gchecksum" = "xno"; then
-        PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.16.0, with_internal_gchecksum=no,
-                          with_internal_gchecksum=yes)
-fi
-
-AM_CONDITIONAL(WITH_INTERNAL_GCHECKSUM, test "x$with_internal_gchecksum" = "xyes")
+dnl ***************************************************
+dnl The following functions are only available starting
+dnl from glib 2.22.
+dnl ***************************************************
+saved_CFLAGS="$CFLAGS"
+saved_LIBS="$LIBS"
+CFLAGS="$LIBGPOD_CFLAGS $CFLAGS"
+LIBS="$LIBGPOD_LIBS $LIBS"
+AC_CHECK_FUNCS([g_int64_hash g_int64_equal])
+AC_CHECK_FUNCS([g_checksum_reset])
+AC_CHECK_FUNCS([g_mapped_file_unref])
+CFLAGS="$saved_CFLAGS"
+LIBS="$saved_LIBS"
 
 dnl **************************************************
 dnl * sgutils is necessary to get the xml device file
@@ -111,12 +108,11 @@ AC_SUBST(Z_LIBS)
 AM_CONDITIONAL(HAVE_ZLIB, test x"$have_zlib" = xyes)
 
 dnl ***********************************************************************
-dnl * HAL is optional, but is required if you want things to "just work"
-dnl * when a recent iPod is plugged in
-dnl * libgpod by itself doesn't use HAL at all, HAL is just used to build a 
-dnl * helper program which is then installed as a HAL callout
+dnl * HAL used to be required for iPod hotplug to "just work". However, it
+dnl * has been deprecated in favour of udev-based code, so it's now
+dnl * disabled by default.
 dnl ***********************************************************************
-AC_ARG_WITH(hal, AS_HELP_STRING([--without-hal],[Disable HAL support]))
+AC_ARG_WITH(hal, AS_HELP_STRING([--with-hal],[Enable HAL support]),, [with_hal=no])
 
 hal_callouts_dir="`$PKG_CONFIG --variable libdir hal`/hal/scripts"
 AC_ARG_WITH(hal_callouts_dir, AS_HELP_STRING([--with-hal-callouts-dir=DIR],[Directory where HAL expects its callout scripts to be located]),,
@@ -130,7 +126,7 @@ AC_ARG_WITH(hal_fdi_dir, AS_HELP_STRING([--with-hal-fdi-dir=DIR],[Directory wher
 HALFDIDIR="$with_hal_fdi_dir"
 AC_SUBST(HALFDIDIR)
 
-if test "x$with_hal" != "xno"; then
+if test "x$with_hal" = "xyes"; then
   PKG_CHECK_MODULES(HAL, hal >= 0.5 hal < 0.6, enable_hal=yes, enable_hal=no)
   if test "x$enable_hal" != "xyes" -a "x$with_hal" = "xyes"; then
       AC_MSG_ERROR([HAL support explicitly requested but HAL couldn't be found])
@@ -158,6 +154,9 @@ if test "x$with_libimobiledevice" != "xno"; then
   if test "x$enable_libimobiledevice" = "xyes"; then
       LIBIMOBILEDEVICE_REQ="libimobiledevice-1.0"
       AC_DEFINE(HAVE_LIBIMOBILEDEVICE, 1, [Define if you have libimobiledevice support])
+      PKG_CHECK_EXISTS(libimobiledevice-1.0 >= 1.1.5,
+                       [AC_DEFINE(HAVE_LIBIMOBILEDEVICE_1_1_5, 1,
+                                  [Define to 1 if libimobiledevice-1.1.5 found])])
   fi
 fi
 AC_SUBST(LIBIMOBILEDEVICE_REQ)
@@ -166,18 +165,22 @@ AM_CONDITIONAL(HAVE_LIBIMOBILEDEVICE, test x"$enable_libimobiledevice" = xyes)
 dnl ***********************************************************************
 dnl * udev can be used to run a callout as an alternative to the hal callout
 dnl * nowadays (2009), it's the recommended way of having callouts, so
-dnl * it should be preferred over HAL
+dnl * it should be preferred over HAL, and it's enabled by default.
 dnl ***********************************************************************
 AC_ARG_ENABLE(udev,
-             [AS_HELP_STRING([--enable-udev],[Enable udev callout])],
-             [if test $enableval = "yes" ; then
-                 enable_udev=yes
+             [AS_HELP_STRING([--disable-udev],[Disable udev callout])],
+             [if test x"$enableval" = "xno" ; then
+                 enable_udev=no
               else
-                enable_udev=no
+                 enable_udev=yes
               fi],
-              [enable_udev=no])
+              [enable_udev=yes])
 AM_CONDITIONAL(USE_UDEV, test x"$enable_udev" = xyes)
-AC_SUBST([udevdir], [/lib/udev])
+udevdir="/lib/udev"
+AC_ARG_WITH([udev-dir],
+            AS_HELP_STRING([--with-udev-dir=DIR],[Directory where udev expects helper programs to be located]),
+            [udevdir="$with_udev_dir"])
+AC_SUBST([udevdir], [$udevdir])
 
 dnl ***********************************************************************
 dnl * for the udev and hal callouts, we need a temporary directory to
@@ -193,7 +196,7 @@ AH_TEMPLATE([TMPMOUNTDIR], [Directory where HAL/udev will create a sub-directory
 AC_DEFINE_UNQUOTED(TMPMOUNTDIR, "$with_temp_mount_dir", [Directory where HAL/udev will create a sub-directory to mount iPods])
 
 dnl ***********************************************************************
-dnl * provide a $l{ibdir}/libgpod directory for external modules
+dnl * provide a ${libdir}/libgpod directory for external modules
 dnl ***********************************************************************
 AC_ARG_WITH(libgpod-blob-dir, [AC_HELP_STRING([--with-libgpod-blob-dir=PATH],
                                               [Load libgpod binary blobs from this directory [LIBDIR/libgpod]])],
@@ -268,7 +271,7 @@ AC_ARG_ENABLE(pygobject, [AS_HELP_STRING([--disable-pygobject],[Python API will 
 esac])
 AH_TEMPLATE([HAVE_PYGOBJECT], [Whether pygobject is installed, Python API will lack GdkPixbuf support without PyGOBJECT])
 if test x$enable_pygobject != xno; then
-   PKG_CHECK_MODULES(PYGOBJECT, pygobject-2.0 >= 2.8.0, have_pygobject=yes, have_pygobject=no)
+   PKG_CHECK_MODULES(PYGOBJECT, pygobject-3.0 >= 3.0, have_pygobject=yes, have_pygobject=no)
    if test x"$enable_pygobject" = xyes -a x"$have_pygobject" = xno; then
       AC_MSG_ERROR([pygobject support explicitly requested but pygobject couldn't be found])
    fi
@@ -303,7 +306,7 @@ dnl **************************************************
 dnl * optional python bindings
 dnl **************************************************
 
-PYTHON_MIN_VERSION=2.1.1
+PYTHON_MIN_VERSION=3.11.0
 PYTHON_MUTAGEN_MIN_VERSION=1.8
 SWIG_MIN_VERSION=1.3.24
 LIBGPOD_CHECK_PYTHON($PYTHON_MIN_VERSION)
@@ -315,6 +318,13 @@ dnl **************************************************
 MONO_MIN_VERSION=1.9.1
 GTK_SHARP_MIN_VERSION=2.12
 LIBGPOD_CHECK_MONO
+AC_CHECK_ALIGNOF([double])
+if test "$ac_cv_alignof_double" -eq 4 ; then
+    GMCS_FLAGS=-define:ALIGNMENT_X86_LINUX
+else
+    GMCS_FLAGS=
+fi
+AC_SUBST(GMCS_FLAGS)
 
 dnl warnings bits, copied from gnome-keyring configure.in
 dnl Turn on the additional warnings last, so -Werror doesn't affect other tests.

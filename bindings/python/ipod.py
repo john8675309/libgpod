@@ -9,15 +9,16 @@ import gpod
 import types
 from mutagen.mp3 import MP3
 import mutagen.id3
-import gtkpod
+from . import gtkpod
 import os
 import locale
 import socket
 import datetime
+import types
 
 if hasattr(gpod, 'HAVE_GDKPIXBUF') and hasattr(gpod, 'HAVE_PYGOBJECT'):
     try:
-        import gtk
+        # import gtk # Module 'gtk' needs to be updated or replaced for Python 3
         pixbuf_support = True
     except ImportError:
         pixbuf_support = False
@@ -116,8 +117,8 @@ class Database:
         gtkpod.write(itdbext_file, self, self._itdb_file)
 
     def __getitem__(self, index):
-        if type(index) == types.SliceType:
-            return [self[i] for i in xrange(*index.indices(len(self)))]
+        if isinstance(index, slice):
+            return [self[i] for i in range(*index.indices(len(self)))]
         else:
             if index < 0:
                 index += len(self)
@@ -182,7 +183,7 @@ class Database:
             if harddisk:
                 try:
                     filename = item._userdata_into_default_locale('filename')
-                except KeyError, e:
+                except KeyError as e:
                     raise TrackException("Unable to remove %s from hard disk, no filename available." % item)
                 os.unlink(filename)
             if ipod:
@@ -190,7 +191,7 @@ class Database:
                 if filename and os.path.exists(filename):
                     os.unlink(filename)
                     if not quiet:
-                        print "unlinked %s" % filename
+                        print("unlinked %s" % filename)
             gpod.itdb_track_unlink(item._track)
         else:
             raise DatabaseException("Unable to remove a %s from database" % type(item))
@@ -327,7 +328,7 @@ class Track:
                 self.set_coverart_from_file(possible_image)
             try:
                 audiofile = MP3(self._userdata_into_default_locale('filename'))
-            except Exception, e:
+            except Exception as e:
                 raise TrackException(str(e))
             for tag, attrib in (('TPE1','artist'),
                                 ('TIT2','title'),
@@ -367,7 +368,7 @@ class Track:
         self['userdata']['%s_locale' % key] = value
         try:
             self['userdata']['%s_utf8'   % key] = value.decode(self['userdata']['charset']).encode('UTF-8')
-        except UnicodeDecodeError, e:
+        except UnicodeDecodeError as e:
             # string clearly isn't advertised charset.  I prefer to
             # not add the _utf8 version as we can't actually generate
             # it. Maybe we'll have to populate a close-fit though.
@@ -560,7 +561,7 @@ class _Playlists:
 
     def __getitem__(self, index):
         if type(index) == types.SliceType:
-            return [self[i] for i in xrange(*index.indices(len(self)))]
+            return [self[i] for i in range(*index.indices(len(self)))]
         else:
             if index < 0:
                 index += len(self)
@@ -734,7 +735,7 @@ class Playlist:
 
     def __getitem__(self, index):
         if type(index) == types.SliceType:
-            return [self[i] for i in xrange(*index.indices(len(self)))]
+            return [self[i] for i in range(*index.indices(len(self)))]
         else:
             if index < 0:
                 index += len(self)
@@ -804,7 +805,7 @@ class PhotoDatabase:
 
     def __getitem__(self, index):
         if type(index) == types.SliceType:
-            return [self[i] for i in xrange(*index.indices(len(self)))]
+            return [self[i] for i in range(*index.indices(len(self)))]
         else:
             if index < 0:
                 index += len(self)
@@ -859,7 +860,7 @@ class _PhotoAlbums:
 
     def __getitem__(self, index):
         if type(index) == types.SliceType:
-            return [self[i] for i in xrange(*index.indices(len(self)))]
+            return [self[i] for i in range(*index.indices(len(self)))]
         else:
             if index < 0:
                 index += len(self)
@@ -927,7 +928,7 @@ class PhotoAlbum:
 
     def __getitem__(self, index):
         if type(index) == types.SliceType:
-            return [self[i] for i in xrange(*index.indices(len(self)))]
+            return [self[i] for i in range(*index.indices(len(self)))]
         else:
             if index < 0:
                 index += len(self)
